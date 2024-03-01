@@ -1,3 +1,6 @@
+This fork of FFmpeg includes a hack to allow RTP streaming of H264 video without an SDP file.  
+If an RTP:// URL is given as the input to ffplay and a static payload type is not found in the RTP header then this implementation assumes H264 video.
+
 FFmpeg README
 =============
 
