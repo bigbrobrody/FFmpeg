@@ -2519,6 +2519,7 @@ static int rtp_read_header(AVFormatContext *s)
     const char *p;
     AVBPrint sdp;
     AVDictionary *opts = NULL;
+    char enc_name[6];
 
     if (!ff_network_init())
         return AVERROR(EIO);
@@ -2563,11 +2564,18 @@ static int rtp_read_header(AVFormatContext *s)
     }
 
     if (ff_rtp_get_codec_info(par, payload_type)) {
-        av_log(s, AV_LOG_ERROR, "Unable to receive RTP payload type %d "
+        av_log(s, AV_LOG_WARNING, "Unable to receive RTP payload type %d "
                                 "without an SDP file describing it\n",
                                  payload_type);
+        av_log(s, AV_LOG_WARNING, "Assuming H264 video\n");
+        par->codec_type = AVMEDIA_TYPE_VIDEO;
+        par->codec_id = AV_CODEC_ID_H264;
+        par->sample_rate = 90000;
+        av_strlcpy(enc_name, "H264", 6);
         // ret = AVERROR_INVALIDDATA;
         // goto fail;
+    } else {
+        av_strlcpy(enc_name, ff_rtp_enc_name(payload_type), 6);
     }
     if (par->codec_type != AVMEDIA_TYPE_DATA) {
         av_log(s, AV_LOG_WARNING, "Guessing on RTP content - if not received "
@@ -2605,6 +2613,7 @@ static int rtp_read_header(AVFormatContext *s)
                par->codec_type == AVMEDIA_TYPE_DATA  ? "application" :
                par->codec_type == AVMEDIA_TYPE_VIDEO ? "video" : "audio",
                port, payload_type);
+    av_bprintf(&sdp, "a=rtpmap:%d %s/%d\r\n", payload_type, enc_name, par->sample_rate);
     av_log(s, AV_LOG_VERBOSE, "SDP:\n%s\n", sdp.str);
     if (!av_bprint_is_complete(&sdp))
         goto fail_nobuf;

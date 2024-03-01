@@ -12,6 +12,7 @@
 *.h.c
 *.ilk
 *.lib
+*.log
 *.pc
 *.pdb
 *.so
