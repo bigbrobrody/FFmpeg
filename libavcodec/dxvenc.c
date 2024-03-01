@@ -134,7 +134,7 @@ typedef struct DXVEncContext {
             if (bytestream2_get_bytes_left_p(pbc) < 4) {                      \
                 return AVERROR_INVALIDDATA;                                   \
             }                                                                 \
-            value = (uint32_t*)pbc->buffer;                                   \
+            value = pbc->buffer;                                              \
             bytestream2_put_le32(pbc, 0);                                     \
             state = 0;                                                        \
         }                                                                     \
@@ -149,7 +149,7 @@ typedef struct DXVEncContext {
         } else {                                                              \
             op = 0;                                                           \
         }                                                                     \
-        *value |= (op << (state * 2));                                        \
+        AV_WL32(value, AV_RL32(value) | (op << (state * 2)));                 \
         state++;                                                              \
     } while (0)
 
@@ -157,7 +157,7 @@ static int dxv_compress_dxt1(AVCodecContext *avctx)
 {
     DXVEncContext *ctx = avctx->priv_data;
     PutByteContext *pbc = &ctx->pbc;
-    uint32_t *value;
+    void *value;
     uint32_t color, lut, idx, color_idx, lut_idx, prev_pos, state = 16, pos = 2, op = 0;
 
     ht_init(ctx->color_lookback_ht);
@@ -233,6 +233,8 @@ static int dxv_encode(AVCodecContext *avctx, AVPacket *pkt,
         ctx->enc.tex_data.out = ctx->tex_data;
         ctx->enc.frame_data.in = frame->data[0];
         ctx->enc.stride = frame->linesize[0];
+        ctx->enc.width  = avctx->width;
+        ctx->enc.height = avctx->height;
         ff_texturedsp_exec_compress_threads(avctx, &ctx->enc);
     } else {
         /* unimplemented: YCoCg formats */
@@ -324,8 +326,8 @@ static av_cold int dxv_close(AVCodecContext *avctx)
 #define OFFSET(x) offsetof(DXVEncContext, x)
 #define FLAGS     AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption options[] = {
-    { "format", NULL, OFFSET(tex_fmt), AV_OPT_TYPE_INT, { .i64 = DXV_FMT_DXT1 }, DXV_FMT_DXT1, DXV_FMT_DXT1, FLAGS, "format" },
-        { "dxt1", "DXT1 (Normal Quality, No Alpha)", 0, AV_OPT_TYPE_CONST, { .i64 = DXV_FMT_DXT1   }, 0, 0, FLAGS, "format" },
+    { "format", NULL, OFFSET(tex_fmt), AV_OPT_TYPE_INT, { .i64 = DXV_FMT_DXT1 }, DXV_FMT_DXT1, DXV_FMT_DXT1, FLAGS, .unit = "format" },
+        { "dxt1", "DXT1 (Normal Quality, No Alpha)", 0, AV_OPT_TYPE_CONST, { .i64 = DXV_FMT_DXT1   }, 0, 0, FLAGS, .unit = "format" },
     { NULL },
 };
 

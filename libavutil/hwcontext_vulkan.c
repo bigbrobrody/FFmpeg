@@ -1807,16 +1807,22 @@ static void vulkan_frame_free(AVHWFramesContext *hwfc, AVVkFrame *f)
     VulkanDevicePriv *p = hwfc->device_ctx->internal->priv;
     FFVulkanFunctions *vk = &p->vkctx.vkfn;
     int nb_images = ff_vk_count_images(f);
+    int nb_sems = 0;
 
-    VkSemaphoreWaitInfo sem_wait = {
-        .sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
-        .flags          = 0x0,
-        .pSemaphores    = f->sem,
-        .pValues        = f->sem_value,
-        .semaphoreCount = nb_images,
-    };
+    while (nb_sems < FF_ARRAY_ELEMS(f->sem) && f->sem[nb_sems])
+        nb_sems++;
 
-    vk->WaitSemaphores(hwctx->act_dev, &sem_wait, UINT64_MAX);
+    if (nb_sems) {
+        VkSemaphoreWaitInfo sem_wait = {
+            .sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+            .flags          = 0x0,
+            .pSemaphores    = f->sem,
+            .pValues        = f->sem_value,
+            .semaphoreCount = nb_sems,
+        };
+
+        vk->WaitSemaphores(hwctx->act_dev, &sem_wait, UINT64_MAX);
+    }
 
     vulkan_free_internal(f);
 
@@ -2098,7 +2104,8 @@ static int create_frame(AVHWFramesContext *hwfc, AVVkFrame **frame,
         if (ret != VK_SUCCESS) {
             av_log(hwctx, AV_LOG_ERROR, "Failed to create semaphore: %s\n",
                    ff_vk_ret2str(ret));
-            return AVERROR_EXTERNAL;
+            err = AVERROR_EXTERNAL;
+            goto fail;
         }
 
         f->queue_family[i] = p->nb_img_qfs > 1 ? VK_QUEUE_FAMILY_IGNORED : p->img_qfs[0];
@@ -2625,7 +2632,8 @@ static int vulkan_map_from_drm_frame_desc(AVHWFramesContext *hwfc, AVVkFrame **f
         if (ret != VK_SUCCESS) {
             av_log(hwctx, AV_LOG_ERROR, "Failed to create semaphore: %s\n",
                    ff_vk_ret2str(ret));
-            return AVERROR_EXTERNAL;
+            err = AVERROR_EXTERNAL;
+            goto fail;
         }
 
         /* We'd import a semaphore onto the one we created using
@@ -2744,14 +2752,7 @@ static int vulkan_map_from_drm_frame_desc(AVHWFramesContext *hwfc, AVVkFrame **f
     return 0;
 
 fail:
-    for (int i = 0; i < desc->nb_layers; i++) {
-        vk->DestroyImage(hwctx->act_dev, f->img[i], hwctx->alloc);
-        vk->DestroySemaphore(hwctx->act_dev, f->sem[i], hwctx->alloc);
-    }
-    for (int i = 0; i < desc->nb_objects; i++)
-        vk->FreeMemory(hwctx->act_dev, f->mem[i], hwctx->alloc);
-
-    av_free(f);
+    vulkan_frame_free(hwfc, f);
 
     return err;
 }
@@ -3393,9 +3394,7 @@ static int transfer_image_buf(AVHWFramesContext *hwfc, AVFrame *f,
     if (err < 0)
         return err;
 
-    /* Wait for the operation to complete when downloading */
-    if (to_buf)
-        ff_vk_exec_wait(&p->vkctx, exec);
+    ff_vk_exec_wait(&p->vkctx, exec);
 
     return 0;
 }
